@@ -2,14 +2,9 @@ package provider
 
 import (
 	"context"
-	"maps"
-	"sort"
-	"strings"
 	"time"
 
 	"github.com/go-logr/logr"
-	"k8s.io/apimachinery/pkg/api/resource"
-	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	corev1 "k8s.io/api/core/v1"
@@ -54,117 +49,32 @@ var coreResources = map[corev1.ResourceName]struct{}{
 // StartNodeCapacityUpdater starts a goroutine that periodically updates the capacity
 // of the virtual node based on host node capacity and any applied ResourceQuotas.
 func startNodeCapacityUpdater(ctx context.Context, logger logr.Logger, hostClient client.Client, virtualClient client.Client, virtualCluster v1beta1.Cluster, virtualNodeName string) {
-	go func() {
-		ticker := time.NewTicker(UpdateNodeCapacityInterval)
-		defer ticker.Stop()
-
-		for {
-			select {
-			case <-ticker.C:
-				updateNodeCapacity(ctx, logger, hostClient, virtualClient, virtualCluster, virtualNodeName)
-			case <-ctx.Done():
-				logger.Info("Stopping node capacity updates for node", "node", virtualNodeName)
-				return
-			}
-		}
-	}()
+	_ = "STUB: not implemented"
+	return
 }
 
 // updateNodeCapacity will update the virtual node capacity (and the allocatable field) with the sum of all the resource in the host nodes.
 // If the nodeLabels are specified only the matching nodes will be considered.
 func updateNodeCapacity(ctx context.Context, logger logr.Logger, hostClient client.Client, virtualClient client.Client, virtualCluster v1beta1.Cluster, virtualNodeName string) {
+	_ = "STUB: not implemented"
 	// by default we get the resources of the same Node where the kubelet is running
-	var node corev1.Node
-	if err := hostClient.Get(ctx, types.NamespacedName{Name: virtualNodeName}, &node); err != nil {
-		logger.Error(err, "error getting virtual node for updating node capacity")
-		return
-	}
-
-	allocatable := node.Status.Allocatable.DeepCopy()
-
-	// we need to check if the virtual cluster resources are "limited" through ResourceQuotas
-	// If so we will use the minimum resources
-
-	var quotas corev1.ResourceQuotaList
-	if err := hostClient.List(ctx, &quotas, &client.ListOptions{Namespace: virtualCluster.Namespace}); err != nil {
-		logger.Error(err, "error getting namespace for updating node capacity")
-		return
-	}
-
-	if len(quotas.Items) > 0 {
-		var virtualNodeList, hostNodeList corev1.NodeList
-
-		if err := virtualClient.List(ctx, &virtualNodeList); err != nil {
-			logger.Error(err, "error listing virtual nodes for stable capacity distribution")
-			return
-		}
-
-		virtResourceMap := make(map[string]corev1.ResourceList)
-		for _, vNode := range virtualNodeList.Items {
-			virtResourceMap[vNode.Name] = corev1.ResourceList{}
-		}
-
-		if err := hostClient.List(ctx, &hostNodeList); err != nil {
-			logger.Error(err, "error listing host nodes for stable capacity distribution")
-			return
-		}
-
-		hostResourceMap := make(map[string]corev1.ResourceList)
-
-		for _, hNode := range hostNodeList.Items {
-			if _, ok := virtResourceMap[hNode.Name]; ok {
-				hostResourceMap[hNode.Name] = hNode.Status.Allocatable
-			}
-		}
-
-		var resourceLists []corev1.ResourceList
-		for _, q := range quotas.Items {
-			resourceLists = append(resourceLists, q.Status.Hard)
-		}
-
-		mergedQuota := mergeQuotas(resourceLists...)
-		mergedQuota = filterQuotas(mergedQuota)
-
-		// get the node's quota and merge it with the current values
-		m := distributeQuotas(hostResourceMap, virtResourceMap, mergedQuota)
-		for name, value := range m[virtualNodeName] {
-			allocatable[name] = value
-		}
-	}
-
-	var virtualNode corev1.Node
-	if err := virtualClient.Get(ctx, types.NamespacedName{Name: virtualNodeName}, &virtualNode); err != nil {
-		logger.Error(err, "error getting virtual node for updating node capacity")
-		return
-	}
-
-	virtualNode.Status.Capacity = allocatable
-	virtualNode.Status.Allocatable = allocatable
-
-	if err := virtualClient.Status().Update(ctx, &virtualNode); err != nil {
-		logger.Error(err, "error updating node capacity")
-	}
+	return
 }
+
+// we need to check if the virtual cluster resources are "limited" through ResourceQuotas
+// If so we will use the minimum resources
+
+// get the node's quota and merge it with the current values
 
 // mergeQuotas takes multiple resource quotas lists and returns a single list that represents
 // the most restrictive set of resource quotas. For each resource name, it selects the minimum
 // quantity found across all the provided lists.
 func mergeQuotas(resourceLists ...corev1.ResourceList) corev1.ResourceList {
-	merged := corev1.ResourceList{}
-
-	for _, resourceList := range resourceLists {
-		for resName, qty := range resourceList {
-			existingQty, found := merged[resName]
-
-			// If it's the first time we see it OR the new one is smaller -> Update
-			if !found || qty.Cmp(existingQty) < 0 {
-				merged[resName] = qty.DeepCopy()
-			}
-		}
-	}
-
-	return merged
+	_ = "STUB: not implemented"
+	return *new(corev1.ResourceList)
 }
+
+// If it's the first time we see it OR the new one is smaller -> Update
 
 // distributeQuotas divides the total resource quotas among all active virtual nodes,
 // capped by each node's actual host capacity. This ensures that each virtual node
@@ -181,113 +91,29 @@ func mergeQuotas(resourceLists ...corev1.ResourceList) corev1.ResourceList {
 //
 // The loop terminates when the quota is fully distributed or no eligible nodes remain.
 func distributeQuotas(hostResourceMap, virtResourceMap map[string]corev1.ResourceList, quotas corev1.ResourceList) map[string]corev1.ResourceList {
-	resourceMap := make(map[string]corev1.ResourceList, len(virtResourceMap))
-	maps.Copy(resourceMap, virtResourceMap)
-
-	// fill out any allocatable resource that does not exist in quota
-	for vn := range virtResourceMap {
-		if hostResources, ok := hostResourceMap[vn]; ok {
-			for resourceName, resourceQty := range hostResources {
-				if _, ok := quotas[resourceName]; !ok {
-					resourceMap[vn][resourceName] = resourceQty
-				}
-			}
-		}
-	}
-	// Distribute each resource type from the policy's hard quota
-	for resourceName, totalQuantity := range quotas {
-		_, useMilli := milliScaleResources[resourceName]
-
-		// eligible nodes for each distribution cycle
-		var eligibleNodes []string
-
-		hostCap := make(map[string]int64)
-
-		// Populate the host nodes capacity map and the initial effective nodes
-		for vn := range virtResourceMap {
-			hostNodeResources := hostResourceMap[vn]
-			if hostNodeResources == nil {
-				continue
-			}
-
-			resourceQuantity, found := hostNodeResources[resourceName]
-			if !found {
-				// skip the node if the resource does not exist on the host node
-				continue
-			}
-
-			hostCap[vn] = resourceQuantity.Value()
-			if useMilli {
-				hostCap[vn] = resourceQuantity.MilliValue()
-			}
-
-			eligibleNodes = append(eligibleNodes, vn)
-		}
-
-		sort.Strings(eligibleNodes)
-
-		totalValue := totalQuantity.Value()
-		if useMilli {
-			totalValue = totalQuantity.MilliValue()
-		}
-
-		// Start of the distribution cycle, each cycle will distribute the quota resource
-		// evenly between nodes, each node can not exceed the corresponding host node capacity
-		for totalValue > 0 && len(eligibleNodes) > 0 {
-			nodeNum := int64(len(eligibleNodes))
-			quantityPerNode := totalValue / nodeNum
-			remainder := totalValue % nodeNum
-
-			remainingNodes := []string{}
-
-			for _, virtualNodeName := range eligibleNodes {
-				nodeQuantity := quantityPerNode
-				if remainder > 0 {
-					nodeQuantity++
-					remainder--
-				}
-				// We cap the quantity to the hostNode capacity
-				nodeQuantity = min(nodeQuantity, hostCap[virtualNodeName])
-
-				if nodeQuantity > 0 {
-					existing := resourceMap[virtualNodeName][resourceName]
-					if useMilli {
-						resourceMap[virtualNodeName][resourceName] = *resource.NewMilliQuantity(existing.MilliValue()+nodeQuantity, totalQuantity.Format)
-					} else {
-						resourceMap[virtualNodeName][resourceName] = *resource.NewQuantity(existing.Value()+nodeQuantity, totalQuantity.Format)
-					}
-				}
-
-				totalValue -= nodeQuantity
-				hostCap[virtualNodeName] -= nodeQuantity
-
-				if hostCap[virtualNodeName] > 0 {
-					remainingNodes = append(remainingNodes, virtualNodeName)
-				}
-			}
-
-			eligibleNodes = remainingNodes
-		}
-	}
-
-	return resourceMap
+	_ = "STUB: not implemented"
+	return nil
 }
+
+// fill out any allocatable resource that does not exist in quota
+
+// Distribute each resource type from the policy's hard quota
+
+// eligible nodes for each distribution cycle
+
+// Populate the host nodes capacity map and the initial effective nodes
+
+// skip the node if the resource does not exist on the host node
+
+// Start of the distribution cycle, each cycle will distribute the quota resource
+// evenly between nodes, each node can not exceed the corresponding host node capacity
+
+// We cap the quantity to the hostNode capacity
 
 // filterQuotas filters a resource list from any resource that is not eligible to be used for node capacity
 // like core resources requests, it also strips requests/limits prefixes from other extended resources
 // for example "requests.nvidia.com/gpu" will return back "nvidia.com/gpu"
 func filterQuotas(resources corev1.ResourceList) corev1.ResourceList {
-	filteredResources := make(map[corev1.ResourceName]resource.Quantity)
-
-	for resourceName, resourceValue := range resources {
-		if _, ok := coreResources[resourceName]; ok {
-			continue
-		}
-
-		filteredResourceName := strings.TrimPrefix(resourceName.String(), "requests.")
-		filteredResourceName = strings.TrimPrefix(filteredResourceName, "limits.")
-		filteredResources[corev1.ResourceName(filteredResourceName)] = resourceValue
-	}
-
-	return filteredResources
+	_ = "STUB: not implemented"
+	return *new(corev1.ResourceList)
 }

@@ -1,17 +1,10 @@
 package main
 
 import (
-	"errors"
-	"fmt"
-	"os"
-	"strings"
-
 	"github.com/go-logr/logr"
 	"github.com/go-logr/zapr"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
-	"github.com/spf13/pflag"
-	"github.com/spf13/viper"
 
 	ctrl "sigs.k8s.io/controller-runtime"
 
@@ -63,69 +56,21 @@ func main() {
 	}
 }
 
-func run(cmd *cobra.Command, args []string) error {
-	ctx := cmd.Context()
-
-	if err := cfg.validate(); err != nil {
-		return fmt.Errorf("failed to validate config: %w", err)
-	}
-
-	k, err := newKubelet(ctx, &cfg)
-	if err != nil {
-		return fmt.Errorf("failed to create new virtual kubelet instance: %w", err)
-	}
-
-	podIP := os.Getenv("POD_IP")
-
-	if err := k.registerNode(k.agentIP, podIP, cfg); err != nil {
-		return fmt.Errorf("failed to register new node: %w", err)
-	}
-
-	k.start(ctx)
-
-	return nil
-}
+func run(cmd *cobra.Command, args []string) error { _ = "STUB: not implemented"; return nil }
 
 // InitializeConfig sets up viper to read from config file, environment variables, and flags.
 // It uses a `flatcase` convention for viper keys to match the (lowercased) config file keys,
 // while flags remain in kebab-case.
 func InitializeConfig(cmd *cobra.Command) error {
-	var err error
+	_ = "STUB: not implemented"
 
 	// Bind every cobra flag to a viper key.
 	// The viper key will be the flag name with dashes removed (flatcase).
 	// e.g. "cluster-name" becomes "clustername"
-	cmd.Flags().VisitAll(func(f *pflag.Flag) {
-		configName := strings.ReplaceAll(f.Name, "-", "")
-		envName := strings.ToUpper(strings.ReplaceAll(f.Name, "-", "_"))
-
-		err = errors.Join(err, viper.BindPFlag(configName, f))
-		err = errors.Join(err, viper.BindEnv(configName, envName))
-	})
-
-	if err != nil {
-		return err
-	}
-
-	configFile = viper.GetString("config")
-	viper.SetConfigFile(configFile)
-
-	if err := viper.ReadInConfig(); err != nil {
-		var notFoundErr viper.ConfigFileNotFoundError
-		if errors.As(err, &notFoundErr) || errors.Is(err, os.ErrNotExist) {
-			return fmt.Errorf("no config file found: %w", err)
-		} else {
-			return fmt.Errorf("failed to read config file: %w", err)
-		}
-	}
-
-	// Unmarshal all configuration into the global cfg struct.
-	// Viper correctly handles the precedence of flags > env > config.
-	if err := viper.Unmarshal(&cfg); err != nil {
-		return fmt.Errorf("failed to unmarshal config: %w", err)
-	}
-	// Separately get the debug flag, as it's not part of the main config struct.
-	debug = viper.GetBool("debug")
-
 	return nil
 }
+
+// Unmarshal all configuration into the global cfg struct.
+// Viper correctly handles the precedence of flags > env > config.
+
+// Separately get the debug flag, as it's not part of the main config struct.

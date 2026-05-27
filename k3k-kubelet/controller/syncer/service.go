@@ -3,20 +3,11 @@ package syncer
 import (
 	"context"
 
-	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/apimachinery/pkg/types"
-	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
-	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	corev1 "k8s.io/api/core/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	ctrl "sigs.k8s.io/controller-runtime"
 	ctrlruntimeclient "sigs.k8s.io/controller-runtime/pkg/client"
-
-	"github.com/rancher/k3k/k3k-kubelet/translate"
-	"github.com/rancher/k3k/pkg/apis/k3k.io/v1beta1"
 )
 
 const (
@@ -30,124 +21,37 @@ type ServiceReconciler struct {
 
 // AddServiceSyncer adds service syncer controller to the manager of the virtual cluster
 func AddServiceSyncer(ctx context.Context, virtMgr, hostMgr manager.Manager, clusterName, clusterNamespace string) error {
-	translator := translate.ToHostTranslator{
-		ClusterName:      clusterName,
-		ClusterNamespace: clusterNamespace,
-	}
-
-	reconciler := ServiceReconciler{
-		SyncerContext: &SyncerContext{
-			ClusterName:      clusterName,
-			ClusterNamespace: clusterNamespace,
-			VirtualClient:    virtMgr.GetClient(),
-			HostClient:       hostMgr.GetClient(),
-			Translator:       translator,
-		},
-	}
-
-	name := reconciler.Translator.TranslateName(clusterNamespace, serviceControllerName)
-
-	return ctrl.NewControllerManagedBy(virtMgr).
-		Named(name).
-		For(&corev1.Service{}).WithEventFilter(predicate.NewPredicateFuncs(reconciler.filterResources)).
-		Complete(&reconciler)
+	_ = "STUB: not implemented"
+	return nil
 }
 
 func (r *ServiceReconciler) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
-	log := ctrl.LoggerFrom(ctx).WithValues("cluster", r.ClusterName, "clusterNamespace", r.ClusterNamespace)
-	ctx = ctrl.LoggerInto(ctx, log)
-
-	if req.Name == "kubernetes" || req.Name == "kube-dns" {
-		return reconcile.Result{}, nil
-	}
-
-	var (
-		virtService corev1.Service
-		cluster     v1beta1.Cluster
-	)
-
-	if err := r.HostClient.Get(ctx, types.NamespacedName{Name: r.ClusterName, Namespace: r.ClusterNamespace}, &cluster); err != nil {
-		return reconcile.Result{}, err
-	}
-
-	if err := r.VirtualClient.Get(ctx, req.NamespacedName, &virtService); err != nil {
-		return reconcile.Result{}, ctrlruntimeclient.IgnoreNotFound(err)
-	}
-
-	syncedService := r.service(&virtService)
-
-	if err := controllerutil.SetOwnerReference(&cluster, syncedService, r.HostClient.Scheme()); err != nil {
-		return reconcile.Result{}, err
-	}
-
-	// handle deletion
-	if !virtService.DeletionTimestamp.IsZero() {
-		// deleting the synced service if exists
-		if err := r.HostClient.Delete(ctx, syncedService); err != nil {
-			return reconcile.Result{}, ctrlruntimeclient.IgnoreNotFound(err)
-		}
-
-		// remove the finalizer after cleaning up the synced service
-		if controllerutil.RemoveFinalizer(&virtService, serviceFinalizerName) {
-			if err := r.VirtualClient.Update(ctx, &virtService); err != nil {
-				return reconcile.Result{}, err
-			}
-		}
-
-		return reconcile.Result{}, nil
-	}
-
-	// Add finalizer if it does not exist
-	if controllerutil.AddFinalizer(&virtService, serviceFinalizerName) {
-		if err := r.VirtualClient.Update(ctx, &virtService); err != nil {
-			return reconcile.Result{}, err
-		}
-	}
-
-	// create or update the service on host
-	var hostService corev1.Service
-	if err := r.HostClient.Get(ctx, types.NamespacedName{Name: syncedService.Name, Namespace: r.ClusterNamespace}, &hostService); err != nil {
-		if apierrors.IsNotFound(err) {
-			log.Info("creating the service for the first time on the host cluster")
-			return reconcile.Result{}, r.HostClient.Create(ctx, syncedService)
-		}
-
-		return reconcile.Result{}, err
-	}
-
-	log.Info("updating service on the host cluster")
-
-	return reconcile.Result{}, r.HostClient.Update(ctx, syncedService)
+	_ = "STUB: not implemented"
+	return *new(reconcile.Result), nil
 }
+
+// handle deletion
+
+// deleting the synced service if exists
+
+// remove the finalizer after cleaning up the synced service
+
+// Add finalizer if it does not exist
+
+// create or update the service on host
 
 func (r *ServiceReconciler) filterResources(object ctrlruntimeclient.Object) bool {
-	var cluster v1beta1.Cluster
-
-	ctx := context.Background()
-
-	if err := r.HostClient.Get(ctx, types.NamespacedName{Name: r.ClusterName, Namespace: r.ClusterNamespace}, &cluster); err != nil {
-		return false
-	}
-
-	// check for serviceSyncConfig
-	syncConfig := cluster.Spec.Sync.Services
-
-	// If syncing is disabled, only process deletions to allow for cleanup.
-	if !syncConfig.Enabled {
-		return object.GetDeletionTimestamp() != nil
-	}
-
-	labelSelector := labels.SelectorFromSet(syncConfig.Selector)
-	if labelSelector.Empty() {
-		return true
-	}
-
-	return labelSelector.Matches(labels.Set(object.GetLabels()))
+	_ = "STUB: not implemented"
+	return false
 }
+
+// check for serviceSyncConfig
+
+// If syncing is disabled, only process deletions to allow for cleanup.
 
 func (s *ServiceReconciler) service(obj *corev1.Service) *corev1.Service {
-	hostService := obj.DeepCopy()
-	s.Translator.TranslateTo(hostService)
-	// don't sync finalizers to the host
-	return hostService
+	_ = "STUB: not implemented"
+	return nil
 }
+
+// don't sync finalizers to the host

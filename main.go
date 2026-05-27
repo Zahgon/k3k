@@ -2,31 +2,17 @@
 package main
 
 import (
-	"context"
-	"errors"
-	"fmt"
-	"os"
-	"os/signal"
-	"syscall"
-
 	"github.com/go-logr/logr"
 	"github.com/go-logr/zapr"
 	"github.com/spf13/cobra"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/client-go/tools/clientcmd"
-	"sigs.k8s.io/controller-runtime/pkg/manager"
 
-	corev1 "k8s.io/api/core/v1"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
-	ctrl "sigs.k8s.io/controller-runtime"
-	ctrlruntimelog "sigs.k8s.io/controller-runtime/pkg/log"
 
 	"github.com/rancher/k3k/cli/cmds"
 	"github.com/rancher/k3k/pkg/apis/k3k.io/v1beta1"
 	"github.com/rancher/k3k/pkg/buildinfo"
 	"github.com/rancher/k3k/pkg/controller/cluster"
-	"github.com/rancher/k3k/pkg/controller/cluster/agent"
-	"github.com/rancher/k3k/pkg/controller/policy"
 	"github.com/rancher/k3k/pkg/log"
 )
 
@@ -82,82 +68,6 @@ func main() {
 	}
 }
 
-func run(cmd *cobra.Command, args []string) error {
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
+func run(cmd *cobra.Command, args []string) error { _ = "STUB: not implemented"; return nil }
 
-	logger.Info("Starting k3k - Version: " + buildinfo.Version)
-	ctrlruntimelog.SetLogger(logger)
-
-	restConfig, err := clientcmd.BuildConfigFromFlags("", kubeconfig)
-	if err != nil {
-		return fmt.Errorf("failed to create config from kubeconfig file: %v", err)
-	}
-
-	mgr, err := ctrl.NewManager(restConfig, manager.Options{
-		Scheme: scheme,
-	})
-	if err != nil {
-		return fmt.Errorf("failed to create new controller runtime manager: %v", err)
-	}
-
-	logger.Info("adding cluster controller")
-
-	portAllocator, err := agent.NewPortAllocator(ctx, mgr.GetClient())
-	if err != nil {
-		return err
-	}
-
-	runnable := portAllocator.InitPortAllocatorConfig(ctx, mgr.GetClient(), kubeletPortRange)
-	if err := mgr.Add(runnable); err != nil {
-		return err
-	}
-
-	if err := cluster.Add(ctx, mgr, &config, maxConcurrentReconciles, portAllocator, nil); err != nil {
-		return fmt.Errorf("failed to add cluster controller: %v", err)
-	}
-
-	logger.Info("adding statefulset controller")
-
-	if err := cluster.AddStatefulSetController(ctx, mgr, maxConcurrentReconciles); err != nil {
-		return fmt.Errorf("failed to add statefulset controller: %v", err)
-	}
-
-	logger.Info("adding service controller")
-
-	if err := cluster.AddServiceController(ctx, mgr, maxConcurrentReconciles); err != nil {
-		return fmt.Errorf("failed to add service controller: %v", err)
-	}
-
-	logger.Info("adding pod controller")
-
-	if err := cluster.AddPodController(ctx, mgr, maxConcurrentReconciles); err != nil {
-		return fmt.Errorf("failed to add pod controller: %v", err)
-	}
-
-	logger.Info("adding clusterpolicy controller")
-
-	if err := policy.Add(mgr, config.ClusterCIDR, maxConcurrentReconciles); err != nil {
-		return fmt.Errorf("failed to add clusterpolicy controller: %v", err)
-	}
-
-	if err := mgr.Start(ctx); err != nil {
-		return fmt.Errorf("failed to start manager: %v", err)
-	}
-
-	logger.Info("controller manager stopped")
-
-	return nil
-}
-
-func validate() error {
-	if config.SharedAgentImagePullPolicy != "" {
-		if config.SharedAgentImagePullPolicy != string(corev1.PullAlways) &&
-			config.SharedAgentImagePullPolicy != string(corev1.PullIfNotPresent) &&
-			config.SharedAgentImagePullPolicy != string(corev1.PullNever) {
-			return errors.New("invalid value for shared agent image policy")
-		}
-	}
-
-	return nil
-}
+func validate() error { _ = "STUB: not implemented"; return nil }

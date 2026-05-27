@@ -3,120 +3,21 @@ package policy
 import (
 	"context"
 
-	"sigs.k8s.io/controller-runtime/pkg/client"
-
-	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	ctrl "sigs.k8s.io/controller-runtime"
 
 	"github.com/rancher/k3k/pkg/apis/k3k.io/v1beta1"
-	k3kcontroller "github.com/rancher/k3k/pkg/controller"
 )
 
 func (c *VirtualClusterPolicyReconciler) reconcileNetworkPolicy(ctx context.Context, namespace string, policy *v1beta1.VirtualClusterPolicy) error {
-	log := ctrl.LoggerFrom(ctx)
-	log.V(1).Info("Reconciling NetworkPolicy")
-
-	var cidrList []string
-
-	if c.ClusterCIDR != "" {
-		cidrList = []string{c.ClusterCIDR}
-	} else {
-		var nodeList corev1.NodeList
-		if err := c.Client.List(ctx, &nodeList); err != nil {
-			return err
-		}
-
-		for _, node := range nodeList.Items {
-			if len(node.Spec.PodCIDRs) > 0 {
-				cidrList = append(cidrList, node.Spec.PodCIDRs...)
-			} else {
-				cidrList = append(cidrList, node.Spec.PodCIDR)
-			}
-		}
-	}
-
-	networkPolicy := networkPolicy(namespace, policy, cidrList)
-
-	if err := ctrl.SetControllerReference(policy, networkPolicy, c.Scheme); err != nil {
-		return err
-	}
-
-	// if disabled then delete the existing network policy
-	if policy.Spec.DisableNetworkPolicy {
-		log.V(1).Info("Deleting NetworkPolicy")
-
-		return client.IgnoreNotFound(c.Client.Delete(ctx, networkPolicy))
-	}
-
-	log.V(1).Info("Creating NetworkPolicy")
-
-	// otherwise try to create/update
-	err := c.Client.Create(ctx, networkPolicy)
-	if apierrors.IsAlreadyExists(err) {
-		log.V(1).Info("NetworkPolicy already exists, updating.")
-
-		return c.Client.Update(ctx, networkPolicy)
-	}
-
-	return err
+	_ = "STUB: not implemented"
+	return nil
 }
 
+// if disabled then delete the existing network policy
+
+// otherwise try to create/update
+
 func networkPolicy(namespaceName string, policy *v1beta1.VirtualClusterPolicy, cidrList []string) *networkingv1.NetworkPolicy {
-	return &networkingv1.NetworkPolicy{
-		TypeMeta: metav1.TypeMeta{
-			Kind:       "NetworkPolicy",
-			APIVersion: "networking.k8s.io/v1",
-		},
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      k3kcontroller.SafeConcatNameWithPrefix(policy.Name),
-			Namespace: namespaceName,
-			Labels: map[string]string{
-				ManagedByLabelKey:  VirtualPolicyControllerName,
-				PolicyNameLabelKey: policy.Name,
-			},
-		},
-		Spec: networkingv1.NetworkPolicySpec{
-			PolicyTypes: []networkingv1.PolicyType{
-				networkingv1.PolicyTypeIngress,
-				networkingv1.PolicyTypeEgress,
-			},
-			Ingress: []networkingv1.NetworkPolicyIngressRule{
-				{},
-			},
-			Egress: []networkingv1.NetworkPolicyEgressRule{
-				{
-					To: []networkingv1.NetworkPolicyPeer{
-						{
-							IPBlock: &networkingv1.IPBlock{
-								CIDR:   "0.0.0.0/0",
-								Except: cidrList,
-							},
-						},
-						{
-							NamespaceSelector: &metav1.LabelSelector{
-								MatchLabels: map[string]string{
-									"kubernetes.io/metadata.name": namespaceName,
-								},
-							},
-						},
-						{
-							NamespaceSelector: &metav1.LabelSelector{
-								MatchLabels: map[string]string{
-									"kubernetes.io/metadata.name": metav1.NamespaceSystem,
-								},
-							},
-							PodSelector: &metav1.LabelSelector{
-								MatchLabels: map[string]string{
-									"k8s-app": "kube-dns",
-								},
-							},
-						},
-					},
-				},
-			},
-		},
-	}
+	_ = "STUB: not implemented"
+	return nil
 }

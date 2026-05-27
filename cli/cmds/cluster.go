@@ -4,18 +4,4 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func NewClusterCmd(appCtx *AppContext) *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "cluster",
-		Short: "K3k cluster command.",
-	}
-
-	cmd.AddCommand(
-		NewClusterCreateCmd(appCtx),
-		NewClusterUpdateCmd(appCtx),
-		NewClusterDeleteCmd(appCtx),
-		NewClusterListCmd(appCtx),
-	)
-
-	return cmd
-}
+func NewClusterCmd(appCtx *AppContext) *cobra.Command { _ = "STUB: not implemented"; return nil }

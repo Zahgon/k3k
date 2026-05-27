@@ -8,8 +8,6 @@ See https://github.com/virtual-kubelet/azure-aci/tree/master/pkg/metrics/collect
 package collectors
 
 import (
-	"time"
-
 	compbasemetrics "k8s.io/component-base/metrics"
 	stats "k8s.io/kubelet/pkg/apis/stats/v1alpha1"
 )
@@ -75,9 +73,8 @@ var (
 
 // NewResourceMetricsCollector returns a metrics.StableCollector which exports resource metrics
 func NewKubeletResourceMetricsCollector(podStats *stats.Summary) compbasemetrics.StableCollector {
-	return &resourceMetricsCollector{
-		providerPodStats: podStats,
-	}
+	_ = "STUB: not implemented"
+	return *new(compbasemetrics.StableCollector)
 }
 
 type resourceMetricsCollector struct {
@@ -91,20 +88,8 @@ var _ compbasemetrics.StableCollector = &resourceMetricsCollector{}
 
 // DescribeWithStability implements compbasemetrics.StableCollector
 func (rc *resourceMetricsCollector) DescribeWithStability(ch chan<- *compbasemetrics.Desc) {
-	descs := []*compbasemetrics.Desc{
-		nodeCPUUsageDesc,
-		nodeMemoryUsageDesc,
-		containerStartTimeDesc,
-		containerCPUUsageDesc,
-		containerMemoryUsageDesc,
-		podCPUUsageDesc,
-		podMemoryUsageDesc,
-		resourceScrapeResultDesc,
-	}
-
-	for _, desc := range descs {
-		ch <- desc
-	}
+	_ = "STUB: not implemented"
+	return
 }
 
 // CollectWithStability implements compbasemetrics.StableCollector
@@ -112,93 +97,43 @@ func (rc *resourceMetricsCollector) DescribeWithStability(ch chan<- *compbasemet
 // leak metric collectors for containers or pods that no longer exist.  Instead, implement
 // custom collector in a way that only collects metrics for active containers.
 func (rc *resourceMetricsCollector) CollectWithStability(ch chan<- compbasemetrics.Metric) {
-	var errorCount float64
-
-	defer func() {
-		ch <- compbasemetrics.NewLazyConstMetric(resourceScrapeResultDesc, compbasemetrics.GaugeValue, errorCount)
-	}()
-
-	statsSummary := *rc.providerPodStats
-	rc.collectNodeCPUMetrics(ch, statsSummary.Node)
-	rc.collectNodeMemoryMetrics(ch, statsSummary.Node)
-
-	for _, pod := range statsSummary.Pods {
-		for _, container := range pod.Containers {
-			rc.collectContainerStartTime(ch, pod, container)
-			rc.collectContainerCPUMetrics(ch, pod, container)
-			rc.collectContainerMemoryMetrics(ch, pod, container)
-		}
-
-		rc.collectPodCPUMetrics(ch, pod)
-		rc.collectPodMemoryMetrics(ch, pod)
-	}
+	_ = "STUB: not implemented"
+	return
 }
 
 // implement collector methods and validate that correct data is used
 
 func (rc *resourceMetricsCollector) collectNodeCPUMetrics(ch chan<- compbasemetrics.Metric, s stats.NodeStats) {
-	if s.CPU == nil || s.CPU.UsageCoreNanoSeconds == nil {
-		return
-	}
-
-	ch <- compbasemetrics.NewLazyMetricWithTimestamp(s.CPU.Time.Time,
-		compbasemetrics.NewLazyConstMetric(nodeCPUUsageDesc, compbasemetrics.CounterValue, float64(*s.CPU.UsageCoreNanoSeconds)/float64(time.Second)))
+	_ = "STUB: not implemented"
+	return
 }
 
 func (rc *resourceMetricsCollector) collectNodeMemoryMetrics(ch chan<- compbasemetrics.Metric, s stats.NodeStats) {
-	if s.Memory == nil || s.Memory.WorkingSetBytes == nil {
-		return
-	}
-
-	ch <- compbasemetrics.NewLazyMetricWithTimestamp(s.Memory.Time.Time,
-		compbasemetrics.NewLazyConstMetric(nodeMemoryUsageDesc, compbasemetrics.GaugeValue, float64(*s.Memory.WorkingSetBytes)))
+	_ = "STUB: not implemented"
+	return
 }
 
 func (rc *resourceMetricsCollector) collectContainerStartTime(ch chan<- compbasemetrics.Metric, pod stats.PodStats, s stats.ContainerStats) {
-	if s.StartTime.Unix() <= 0 {
-		return
-	}
-
-	ch <- compbasemetrics.NewLazyMetricWithTimestamp(s.StartTime.Time,
-		compbasemetrics.NewLazyConstMetric(containerStartTimeDesc, compbasemetrics.GaugeValue, float64(s.StartTime.UnixNano())/float64(time.Second), s.Name, pod.PodRef.Name, pod.PodRef.Namespace))
+	_ = "STUB: not implemented"
+	return
 }
 
 func (rc *resourceMetricsCollector) collectContainerCPUMetrics(ch chan<- compbasemetrics.Metric, pod stats.PodStats, s stats.ContainerStats) {
-	if s.CPU == nil || s.CPU.UsageCoreNanoSeconds == nil {
-		return
-	}
-
-	ch <- compbasemetrics.NewLazyMetricWithTimestamp(s.CPU.Time.Time,
-		compbasemetrics.NewLazyConstMetric(containerCPUUsageDesc, compbasemetrics.CounterValue,
-			float64(*s.CPU.UsageCoreNanoSeconds)/float64(time.Second), s.Name, pod.PodRef.Name, pod.PodRef.Namespace))
+	_ = "STUB: not implemented"
+	return
 }
 
 func (rc *resourceMetricsCollector) collectContainerMemoryMetrics(ch chan<- compbasemetrics.Metric, pod stats.PodStats, s stats.ContainerStats) {
-	if s.Memory == nil || s.Memory.WorkingSetBytes == nil {
-		return
-	}
-
-	ch <- compbasemetrics.NewLazyMetricWithTimestamp(s.Memory.Time.Time,
-		compbasemetrics.NewLazyConstMetric(containerMemoryUsageDesc, compbasemetrics.GaugeValue,
-			float64(*s.Memory.WorkingSetBytes), s.Name, pod.PodRef.Name, pod.PodRef.Namespace))
+	_ = "STUB: not implemented"
+	return
 }
 
 func (rc *resourceMetricsCollector) collectPodCPUMetrics(ch chan<- compbasemetrics.Metric, pod stats.PodStats) {
-	if pod.CPU == nil || pod.CPU.UsageCoreNanoSeconds == nil {
-		return
-	}
-
-	ch <- compbasemetrics.NewLazyMetricWithTimestamp(pod.CPU.Time.Time,
-		compbasemetrics.NewLazyConstMetric(podCPUUsageDesc, compbasemetrics.CounterValue,
-			float64(*pod.CPU.UsageCoreNanoSeconds)/float64(time.Second), pod.PodRef.Name, pod.PodRef.Namespace))
+	_ = "STUB: not implemented"
+	return
 }
 
 func (rc *resourceMetricsCollector) collectPodMemoryMetrics(ch chan<- compbasemetrics.Metric, pod stats.PodStats) {
-	if pod.Memory == nil || pod.Memory.WorkingSetBytes == nil {
-		return
-	}
-
-	ch <- compbasemetrics.NewLazyMetricWithTimestamp(pod.Memory.Time.Time,
-		compbasemetrics.NewLazyConstMetric(podMemoryUsageDesc, compbasemetrics.GaugeValue,
-			float64(*pod.Memory.WorkingSetBytes), pod.PodRef.Name, pod.PodRef.Namespace))
+	_ = "STUB: not implemented"
+	return
 }

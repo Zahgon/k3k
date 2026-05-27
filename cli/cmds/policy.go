@@ -4,17 +4,4 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func NewPolicyCmd(appCtx *AppContext) *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "policy",
-		Short: "K3k policy command.",
-	}
-
-	cmd.AddCommand(
-		NewPolicyCreateCmd(appCtx),
-		NewPolicyDeleteCmd(appCtx),
-		NewPolicyListCmd(appCtx),
-	)
-
-	return cmd
-}
+func NewPolicyCmd(appCtx *AppContext) *cobra.Command { _ = "STUB: not implemented"; return nil }

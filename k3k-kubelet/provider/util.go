@@ -13,13 +13,6 @@ type translatorSizeQueue struct {
 }
 
 func (t *translatorSizeQueue) Next() *remotecommand.TerminalSize {
-	size, ok := <-t.resizeChan
-	if !ok {
-		return nil
-	}
-
-	return &remotecommand.TerminalSize{
-		Width:  size.Width,
-		Height: size.Height,
-	}
+	_ = "STUB: not implemented"
+	return nil
 }

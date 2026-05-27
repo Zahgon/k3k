@@ -2,18 +2,12 @@ package agent
 
 import (
 	"context"
-	"fmt"
-	"os"
 
-	"gopkg.in/yaml.v3"
-	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/kubernetes/pkg/apis/core"
 	"k8s.io/kubernetes/pkg/registry/core/service/portallocator"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
 	corev1 "k8s.io/api/core/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	ctrl "sigs.k8s.io/controller-runtime"
 	ctrlruntimeclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -32,200 +26,63 @@ type PortAllocator struct {
 }
 
 func NewPortAllocator(ctx context.Context, client ctrlruntimeclient.Client) (*PortAllocator, error) {
-	log := ctrl.LoggerFrom(ctx)
-	log.Info("starting port allocator")
-
-	portRangeConfigMapNamespace := os.Getenv("CONTROLLER_NAMESPACE")
-	if portRangeConfigMapNamespace == "" {
-		return nil, fmt.Errorf("failed to find k3k controller namespace")
-	}
-
-	var kubeletPortRangeCM corev1.ConfigMap
-
-	kubeletPortRangeCM.Name = kubeletPortRangeConfigMapName
-	kubeletPortRangeCM.Namespace = portRangeConfigMapNamespace
-
-	return &PortAllocator{
-		Client:    client,
-		KubeletCM: &kubeletPortRangeCM,
-	}, nil
+	_ = "STUB: not implemented"
+	return nil, nil
 }
 
 func (a *PortAllocator) InitPortAllocatorConfig(ctx context.Context, client ctrlruntimeclient.Client, kubeletPortRange string) manager.Runnable {
-	return manager.RunnableFunc(func(ctx context.Context) error {
-		return a.getOrCreate(ctx, a.KubeletCM, kubeletPortRange)
-	})
+	_ = "STUB: not implemented"
+	return *new(manager.Runnable)
 }
 
 func (a *PortAllocator) getOrCreate(ctx context.Context, configmap *corev1.ConfigMap, portRange string) error {
-	nn := types.NamespacedName{
-		Name:      configmap.Name,
-		Namespace: configmap.Namespace,
-	}
-
-	if err := a.Get(ctx, nn, configmap); err != nil {
-		if !apierrors.IsNotFound(err) {
-			return err
-		}
-
-		// creating the configMap for the first time
-		configmap.Data = map[string]string{
-			rangeKey:          portRange,
-			allocatedPortsKey: "",
-		}
-		configmap.BinaryData = map[string][]byte{
-			snapshotDataKey: []byte(""),
-		}
-
-		if err := a.Create(ctx, configmap); err != nil {
-			return fmt.Errorf("failed to create port range configmap: %w", err)
-		}
-	}
-
+	_ = "STUB: not implemented"
 	return nil
 }
 
+// creating the configMap for the first time
+
 func (a *PortAllocator) AllocateKubeletPort(ctx context.Context, clusterName, clusterNamespace string) (int, error) {
-	return a.allocatePort(ctx, clusterName, clusterNamespace, a.KubeletCM)
+	_ = "STUB: not implemented"
+	return 0, nil
 }
 
 func (a *PortAllocator) DeallocateKubeletPort(ctx context.Context, clusterName, clusterNamespace string, kubeletPort int) error {
-	return a.deallocatePort(ctx, clusterName, clusterNamespace, a.KubeletCM, kubeletPort)
+	_ = "STUB: not implemented"
+	return nil
 }
 
 // allocatePort will assign port to the cluster from a port Range configured for k3k
 func (a *PortAllocator) allocatePort(ctx context.Context, clusterName, clusterNamespace string, configMap *corev1.ConfigMap) (int, error) {
-	portRange, ok := configMap.Data[rangeKey]
-	if !ok {
-		return 0, fmt.Errorf("port range is not initialized")
-	}
-
-	// get configMap first to avoid conflicts
-	if err := a.getOrCreate(ctx, configMap, portRange); err != nil {
-		return 0, err
-	}
-
-	clusterNamespaceName := clusterNamespace + "/" + clusterName
-
-	portsMap, err := parsePortMap(configMap.Data[allocatedPortsKey])
-	if err != nil {
-		return 0, err
-	}
-
-	if _, ok := portsMap[clusterNamespaceName]; ok {
-		return portsMap[clusterNamespaceName], nil
-	}
-	// allocate a new port and save the snapshot
-	snapshot := core.RangeAllocation{
-		Range: configMap.Data[rangeKey],
-		Data:  configMap.BinaryData[snapshotDataKey],
-	}
-
-	pa, err := portallocator.NewFromSnapshot(&snapshot)
-	if err != nil {
-		return 0, err
-	}
-
-	next, err := pa.AllocateNext()
-	if err != nil {
-		return 0, err
-	}
-
-	portsMap[clusterNamespaceName] = next
-
-	if err := saveSnapshot(pa, &snapshot, configMap, portsMap); err != nil {
-		return 0, err
-	}
-
-	if err := a.Update(ctx, configMap); err != nil {
-		return 0, err
-	}
-
-	return next, nil
+	_ = "STUB: not implemented"
+	return 0, nil
 }
+
+// get configMap first to avoid conflicts
+
+// allocate a new port and save the snapshot
 
 // deallocatePort will remove the port used by the cluster from the port range
 func (a *PortAllocator) deallocatePort(ctx context.Context, clusterName, clusterNamespace string, configMap *corev1.ConfigMap, port int) error {
-	portRange, ok := configMap.Data[rangeKey]
-	if !ok {
-		return fmt.Errorf("port range is not initialized")
-	}
-
-	if err := a.getOrCreate(ctx, configMap, portRange); err != nil {
-		return err
-	}
-
-	clusterNamespaceName := clusterNamespace + "/" + clusterName
-
-	portsMap, err := parsePortMap(configMap.Data[allocatedPortsKey])
-	if err != nil {
-		return err
-	}
-	// check if the cluster already exists in the configMap
-	if usedPort, ok := portsMap[clusterNamespaceName]; ok {
-		if usedPort != port {
-			return fmt.Errorf("port %d does not match used port %d for the cluster", port, usedPort)
-		}
-
-		snapshot := core.RangeAllocation{
-			Range: configMap.Data[rangeKey],
-			Data:  configMap.BinaryData[snapshotDataKey],
-		}
-
-		pa, err := portallocator.NewFromSnapshot(&snapshot)
-		if err != nil {
-			return err
-		}
-
-		if err := pa.Release(port); err != nil {
-			return err
-		}
-
-		delete(portsMap, clusterNamespaceName)
-
-		if err := saveSnapshot(pa, &snapshot, configMap, portsMap); err != nil {
-			return err
-		}
-	}
-
-	return a.Update(ctx, configMap)
+	_ = "STUB: not implemented"
+	return nil
 }
+
+// check if the cluster already exists in the configMap
 
 // parsePortMap will convert ConfigMap Data to a portMap of string keys and values of ints
 func parsePortMap(portMapData string) (map[string]int, error) {
-	portMap := make(map[string]int)
-	if err := yaml.Unmarshal([]byte(portMapData), &portMap); err != nil {
-		return nil, fmt.Errorf("failed to parse allocatedPorts: %w", err)
-	}
-
-	return portMap, nil
+	_ = "STUB: not implemented"
+	return nil, nil
 }
 
 // serializePortMap will convert a portMap of string keys and values of ints to ConfigMap Data
-func serializePortMap(m map[string]int) (string, error) {
-	out, err := yaml.Marshal(m)
-	if err != nil {
-		return "", fmt.Errorf("failed to serialize allocatedPorts: %w", err)
-	}
-
-	return string(out), nil
-}
+func serializePortMap(m map[string]int) (string, error) { _ = "STUB: not implemented"; return "", nil }
 
 func saveSnapshot(portAllocator *portallocator.PortAllocator, snapshot *core.RangeAllocation, configMap *corev1.ConfigMap, portsMap map[string]int) error {
+	_ = "STUB: not implemented"
 	// save the new snapshot
-	if err := portAllocator.Snapshot(snapshot); err != nil {
-		return err
-	}
-	// update the configmap with the new portsMap and the new snapshot
-	configMap.BinaryData[snapshotDataKey] = snapshot.Data
-	configMap.Data[rangeKey] = snapshot.Range
-
-	allocatedPortsData, err := serializePortMap(portsMap)
-	if err != nil {
-		return err
-	}
-
-	configMap.Data[allocatedPortsKey] = allocatedPortsData
-
 	return nil
 }
+
+// update the configmap with the new portsMap and the new snapshot

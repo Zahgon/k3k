@@ -2,45 +2,22 @@ package provider
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
-	"net/http"
-	"strconv"
-	"strings"
-	"time"
 
 	"github.com/go-logr/logr"
-	"github.com/google/go-cmp/cmp"
 	"github.com/virtual-kubelet/virtual-kubelet/node/api"
 	"github.com/virtual-kubelet/virtual-kubelet/node/nodeutil"
-	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/apimachinery/pkg/selection"
-	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/apimachinery/pkg/util/wait"
-	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
-	"k8s.io/client-go/tools/portforward"
-	"k8s.io/client-go/tools/remotecommand"
-	"k8s.io/client-go/transport/spdy"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
 	dto "github.com/prometheus/client_model/go"
 	corev1 "k8s.io/api/core/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	cv1 "k8s.io/client-go/kubernetes/typed/core/v1"
-	compbasemetrics "k8s.io/component-base/metrics"
 	v1alpha1stats "k8s.io/kubelet/pkg/apis/stats/v1alpha1"
 
-	"github.com/rancher/k3k/k3k-kubelet/provider/collectors"
 	"github.com/rancher/k3k/k3k-kubelet/translate"
-	"github.com/rancher/k3k/pkg/apis/k3k.io/v1beta1"
-	k3kcontroller "github.com/rancher/k3k/pkg/controller"
 )
 
 // check at compile time if the Provider implements the nodeutil.Provider interface
@@ -71,656 +48,159 @@ type Provider struct {
 var ErrRetryTimeout = errors.New("provider timed out")
 
 func New(hostConfig rest.Config, hostMgr, virtualMgr manager.Manager, logger logr.Logger, namespace, name, serverIP, dnsIP, agentHostname string) (*Provider, error) {
-	coreClient, err := cv1.NewForConfig(&hostConfig)
-	if err != nil {
-		return nil, err
-	}
-
-	virtualCoreClient, err := cv1.NewForConfig(virtualMgr.GetConfig())
-	if err != nil {
-		return nil, err
-	}
-
-	translator := translate.ToHostTranslator{
-		ClusterName:      name,
-		ClusterNamespace: namespace,
-	}
-
-	p := Provider{
-		Host: ClusterContext{
-			Manager:    hostMgr,
-			Client:     hostMgr.GetClient(),
-			CoreClient: coreClient,
-			Config:     hostConfig,
-		},
-		Virtual: ClusterContext{
-			Manager:    virtualMgr,
-			Client:     virtualMgr.GetClient(),
-			CoreClient: virtualCoreClient,
-		},
-		Translator:       translator,
-		ClusterNamespace: namespace,
-		ClusterName:      name,
-		logger:           logger.WithValues("cluster", name),
-		serverIP:         serverIP,
-		dnsIP:            dnsIP,
-		agentHostname:    agentHostname,
-	}
-
-	return &p, nil
+	_ = "STUB: not implemented"
+	return nil, nil
 }
 
 // GetContainerLogs retrieves the logs of a container by name from the provider.
 func (p *Provider) GetContainerLogs(ctx context.Context, namespace, name, containerName string, opts api.ContainerLogOpts) (io.ReadCloser, error) {
-	hostPodName := p.Translator.TranslateName(namespace, name)
-
-	logger := p.logger.WithValues("namespace", namespace, "name", name, "pod", hostPodName, "container", containerName)
-	logger.V(1).Info("GetContainerLogs")
-
-	options := corev1.PodLogOptions{
-		Container:  containerName,
-		Timestamps: opts.Timestamps,
-		Follow:     opts.Follow,
-		Previous:   opts.Previous,
-	}
-
-	if opts.Tail != 0 {
-		tailLines := int64(opts.Tail)
-		options.TailLines = &tailLines
-	}
-
-	if opts.LimitBytes != 0 {
-		limitBytes := int64(opts.LimitBytes)
-		options.LimitBytes = &limitBytes
-	}
-
-	if opts.SinceSeconds != 0 {
-		sinceSeconds := int64(opts.SinceSeconds)
-		options.SinceSeconds = &sinceSeconds
-	}
-
-	if !opts.SinceTime.IsZero() {
-		sinceTime := metav1.NewTime(opts.SinceTime)
-		options.SinceTime = &sinceTime
-	}
-
-	closer, err := p.Host.CoreClient.Pods(p.ClusterNamespace).GetLogs(hostPodName, &options).Stream(ctx)
-	if err != nil {
-		logger.Error(err, "Error getting logs from container")
-	}
-
-	return closer, err
+	_ = "STUB: not implemented"
+	return *new(io.ReadCloser), nil
 }
 
 // RunInContainer executes a command in a container in the pod, copying data
 // between in/out/err and the container's stdin/stdout/stderr.
 func (p *Provider) RunInContainer(ctx context.Context, namespace, name, containerName string, cmd []string, attach api.AttachIO) error {
-	hostPodName := p.Translator.TranslateName(namespace, name)
-
-	logger := p.logger.WithValues("namespace", namespace, "name", name, "pod", hostPodName, "container", containerName)
-	logger.V(1).Info("RunInContainer")
-
-	req := p.Host.CoreClient.RESTClient().Post().
-		Resource("pods").
-		Name(hostPodName).
-		Namespace(p.ClusterNamespace).
-		SubResource("exec")
-
-	req.VersionedParams(&corev1.PodExecOptions{
-		Container: containerName,
-		Command:   cmd,
-		TTY:       attach.TTY(),
-		Stdin:     attach.Stdin() != nil,
-		Stdout:    attach.Stdout() != nil,
-		Stderr:    attach.Stderr() != nil,
-	}, scheme.ParameterCodec)
-
-	exec, err := remotecommand.NewSPDYExecutor(&p.Host.Config, http.MethodPost, req.URL())
-	if err != nil {
-		logger.Error(err, "Error creating SPDY executor")
-		return err
-	}
-
-	if err = exec.StreamWithContext(ctx, remotecommand.StreamOptions{
-		Stdin:  attach.Stdin(),
-		Stdout: attach.Stdout(),
-		Stderr: attach.Stderr(),
-		Tty:    attach.TTY(),
-		TerminalSizeQueue: &translatorSizeQueue{
-			resizeChan: attach.Resize(),
-		},
-	}); err != nil {
-		logger.Error(err, "Error while executing command in container")
-		return err
-	}
-
+	_ = "STUB: not implemented"
 	return nil
 }
 
 // AttachToContainer attaches to the executing process of a container in the pod, copying data
 // between in/out/err and the container's stdin/stdout/stderr.
 func (p *Provider) AttachToContainer(ctx context.Context, namespace, name, containerName string, attach api.AttachIO) error {
-	hostPodName := p.Translator.TranslateName(namespace, name)
-
-	logger := p.logger.WithValues("namespace", namespace, "name", name, "pod", hostPodName, "container", containerName)
-	logger.V(1).Info("AttachToContainer")
-
-	req := p.Host.CoreClient.RESTClient().Post().
-		Resource("pods").
-		Name(hostPodName).
-		Namespace(p.ClusterNamespace).
-		SubResource("attach")
-
-	req.VersionedParams(&corev1.PodAttachOptions{
-		Container: containerName,
-		TTY:       attach.TTY(),
-		Stdin:     attach.Stdin() != nil,
-		Stdout:    attach.Stdout() != nil,
-		Stderr:    attach.Stderr() != nil,
-	}, scheme.ParameterCodec)
-
-	exec, err := remotecommand.NewSPDYExecutor(&p.Host.Config, http.MethodPost, req.URL())
-	if err != nil {
-		logger.Error(err, "Error creating SPDY executor")
-		return err
-	}
-
-	if err = exec.StreamWithContext(ctx, remotecommand.StreamOptions{
-		Stdin:  attach.Stdin(),
-		Stdout: attach.Stdout(),
-		Stderr: attach.Stderr(),
-		Tty:    attach.TTY(),
-		TerminalSizeQueue: &translatorSizeQueue{
-			resizeChan: attach.Resize(),
-		},
-	}); err != nil {
-		logger.Error(err, "Error while attaching to container")
-		return err
-	}
-
+	_ = "STUB: not implemented"
 	return nil
 }
 
 // GetStatsSummary gets the stats for the node, including running pods
 func (p *Provider) GetStatsSummary(ctx context.Context) (*v1alpha1stats.Summary, error) {
-	p.logger.V(1).Info("GetStatsSummary")
-
-	node, err := p.Host.CoreClient.Nodes().Get(ctx, p.agentHostname, metav1.GetOptions{})
-	if err != nil {
-		p.logger.Error(err, "Unable to get nodes of cluster")
-		return nil, err
-	}
-
-	res, err := p.Host.CoreClient.RESTClient().
-		Get().
-		Resource("nodes").
-		Name(node.Name).
-		SubResource("proxy").
-		Suffix("stats/summary").
-		DoRaw(ctx)
-	if err != nil {
-		p.logger.Error(err, "Unable to get stats/summary from cluster node", "node", node.Name)
-		return nil, err
-	}
-
-	var statsSummary v1alpha1stats.Summary
-	if err := json.Unmarshal(res, &statsSummary); err != nil {
-		p.logger.Error(err, "Error unmarshaling stats/summary from cluster node", "node", node.Name)
-		return nil, err
-	}
-
-	nodeStats := statsSummary.Node
-
-	pods, err := p.GetPods(ctx)
-	if err != nil {
-		p.logger.Error(err, "Error getting pods from cluster for stats")
-		return nil, err
-	}
-
-	podsNameMap := make(map[string]*corev1.Pod)
-
-	for _, pod := range pods {
-		hostPodName := p.Translator.TranslateName(pod.Namespace, pod.Name)
-		podsNameMap[hostPodName] = pod
-	}
-
-	filteredStats := &v1alpha1stats.Summary{
-		Node: nodeStats,
-		Pods: make([]v1alpha1stats.PodStats, 0),
-	}
-
-	for _, podStat := range statsSummary.Pods {
-		// skip pods that are not in the cluster namespace
-		if podStat.PodRef.Namespace != p.ClusterNamespace {
-			continue
-		}
-
-		// rewrite the PodReference to match the data of the virtual cluster
-		if pod, found := podsNameMap[podStat.PodRef.Name]; found {
-			podStat.PodRef = v1alpha1stats.PodReference{
-				Name:      pod.Name,
-				Namespace: pod.Namespace,
-				UID:       string(pod.UID),
-			}
-			filteredStats.Pods = append(filteredStats.Pods, podStat)
-		}
-	}
-
-	return filteredStats, nil
+	_ = "STUB: not implemented"
+	return nil, nil
 }
+
+// skip pods that are not in the cluster namespace
+
+// rewrite the PodReference to match the data of the virtual cluster
 
 // GetMetricsResource gets the metrics for the node, including running pods
 func (p *Provider) GetMetricsResource(ctx context.Context) ([]*dto.MetricFamily, error) {
-	p.logger.V(1).Info("GetMetricsResource")
-
-	statsSummary, err := p.GetStatsSummary(ctx)
-	if err != nil {
-		p.logger.Error(err, "Error getting stats summary from cluster for metrics")
-		return nil, err
-	}
-
-	registry := compbasemetrics.NewKubeRegistry()
-	registry.CustomMustRegister(collectors.NewKubeletResourceMetricsCollector(statsSummary))
-
-	metricFamily, err := registry.Gather()
-	if err != nil {
-		p.logger.Error(err, "Error gathering metrics from collector")
-		return nil, err
-	}
-
-	return metricFamily, nil
+	_ = "STUB: not implemented"
+	return nil, nil
 }
 
 // PortForward forwards a local port to a port on the pod
 func (p *Provider) PortForward(ctx context.Context, namespace, name string, port int32, stream io.ReadWriteCloser) error {
-	hostPodName := p.Translator.TranslateName(namespace, name)
-
-	logger := p.logger.WithValues("namespace", namespace, "name", name, "pod", hostPodName, "port", port)
-	logger.V(1).Info("PortForward")
-
-	req := p.Host.CoreClient.RESTClient().Post().
-		Resource("pods").
-		Name(hostPodName).
-		Namespace(p.ClusterNamespace).
-		SubResource("portforward")
-
-	transport, upgrader, err := spdy.RoundTripperFor(&p.Host.Config)
-	if err != nil {
-		logger.Error(err, "Error creating RoundTripper for PortForward")
-		return err
-	}
-
-	dialer := spdy.NewDialer(upgrader, &http.Client{Transport: transport}, http.MethodPost, req.URL())
-	portAsString := strconv.Itoa(int(port))
-	readyChannel := make(chan struct{})
-	stopChannel := make(chan struct{}, 1)
-
-	// Today this doesn't work properly. When the port ward is supposed to stop, the caller (this provider)
-	// should send a value on stopChannel so that the PortForward is stopped. However, we only have a ReadWriteCloser
-	// so more work is needed to detect a close and handle that appropriately.
-	fw, err := portforward.New(dialer, []string{portAsString}, stopChannel, readyChannel, stream, stream)
-	if err != nil {
-		logger.Error(err, "Error creating new PortForward")
-		return err
-	}
-
-	if err := fw.ForwardPorts(); err != nil {
-		logger.Error(err, "Error forwarding ports")
-		return err
-	}
-
+	_ = "STUB: not implemented"
 	return nil
 }
+
+// Today this doesn't work properly. When the port ward is supposed to stop, the caller (this provider)
+// should send a value on stopChannel so that the PortForward is stopped. However, we only have a ReadWriteCloser
+// so more work is needed to detect a close and handle that appropriately.
 
 // CreatePod executes createPod with retry
 func (p *Provider) CreatePod(ctx context.Context, pod *corev1.Pod) error {
-	return p.withRetry(ctx, p.createPod, pod)
+	_ = "STUB: not implemented"
+	return nil
 }
 
 func (p *Provider) createPod(ctx context.Context, pod *corev1.Pod) error {
-	logger := p.logger.WithValues("namespace", pod.Namespace, "name", pod.Name)
-	logger.V(1).Info("CreatePod")
-
-	// get Cluster definition
-	clusterKey := types.NamespacedName{
-		Namespace: p.ClusterNamespace,
-		Name:      p.ClusterName,
-	}
-
-	var cluster v1beta1.Cluster
-	if err := p.Host.Client.Get(ctx, clusterKey, &cluster); err != nil {
-		logger.Error(err, "Error getting Virtual Cluster definition")
-		return err
-	}
-
-	// get Pod from Virtual Cluster
-	key := types.NamespacedName{
-		Name:      pod.Name,
-		Namespace: pod.Namespace,
-	}
-
-	var virtualPod corev1.Pod
-	if err := p.Virtual.Client.Get(ctx, key, &virtualPod); err != nil {
-		logger.Error(err, "Error getting Pod from Virtual Cluster")
-		return err
-	}
-
-	// Copy the virtual Pod and use it as a baseline for the hostPod
-	// do some basic translation and clearing some values (UID, ResourceVersion, ...)
-
-	hostPod := virtualPod.DeepCopy()
-	p.Translator.TranslateTo(hostPod)
-
-	logger = logger.WithValues("pod", hostPod.Name)
-
-	// Clear the NodeName to allow scheduling, and set affinity to prefer scheduling the Pod on the same host node as the virtual kubelet,
-	// unless the user has specified their own affinity, in which case the user's affinity is respected.
-
-	hostPod.Spec.NodeName = ""
-
-	if hostPod.Spec.Affinity == nil {
-		hostPod.Spec.Affinity = &corev1.Affinity{
-			NodeAffinity: &corev1.NodeAffinity{
-				PreferredDuringSchedulingIgnoredDuringExecution: []corev1.PreferredSchedulingTerm{{
-					Weight: 100,
-					Preference: corev1.NodeSelectorTerm{
-						MatchExpressions: []corev1.NodeSelectorRequirement{{
-							Key:      "kubernetes.io/hostname",
-							Operator: corev1.NodeSelectorOpIn,
-							Values:   []string{p.agentHostname},
-						}},
-					},
-				}},
-			},
-		}
-	}
-
-	// The pod's own nodeSelector is ignored.
-	// The final selector is determined by the cluster spec, but overridden by a policy if present.
-	hostPod.Spec.NodeSelector = cluster.Spec.NodeSelector
-	if cluster.Status.Policy != nil && len(cluster.Status.Policy.NodeSelector) > 0 {
-		hostPod.Spec.NodeSelector = cluster.Status.Policy.NodeSelector
-	}
-
-	// setting the hostname for the pod if its not set
-	if virtualPod.Spec.Hostname == "" {
-		hostPod.Spec.Hostname = k3kcontroller.SafeConcatName(virtualPod.Name)
-	}
-
-	// When a PriorityClass is set we will use the translated one in the HostCluster.
-	// If the Cluster or a Policy defines a PriorityClass of the host we are going to use that one.
-	// Note: the core-dns and local-path-provisioner pod are scheduled by k3s with the
-	// 'system-cluster-critical' and 'system-node-critical' default priority classes.
-	//
-	// TODO: we probably need to define a custom "intermediate" k3k-system-* priority
-	if strings.HasPrefix(virtualPod.Spec.PriorityClassName, "system-") {
-		hostPod.Spec.PriorityClassName = virtualPod.Spec.PriorityClassName
-	} else {
-		enforcedPriorityClassName := cluster.Spec.PriorityClass
-		if cluster.Status.Policy != nil && cluster.Status.Policy.PriorityClass != nil {
-			enforcedPriorityClassName = *cluster.Status.Policy.PriorityClass
-		}
-
-		if enforcedPriorityClassName != "" {
-			hostPod.Spec.PriorityClassName = enforcedPriorityClassName
-		} else if virtualPod.Spec.PriorityClassName != "" {
-			hostPod.Spec.PriorityClassName = p.Translator.TranslateName("", virtualPod.Spec.PriorityClassName)
-			hostPod.Spec.Priority = nil
-		}
-	}
-
-	// if the priority class is set we need to remove the priority
-	if hostPod.Spec.PriorityClassName != "" {
-		hostPod.Spec.Priority = nil
-	}
-
-	p.configurePodEnvs(hostPod, &virtualPod)
-
-	// volumes will often refer to resources in the virtual cluster
-	// but instead need to refer to the synced host cluster version
-	p.transformVolumes(pod.Namespace, hostPod.Spec.Volumes)
-
-	// sync serviceaccount token to a the host cluster
-	if err := p.transformTokens(ctx, &virtualPod, hostPod); err != nil {
-		logger.Error(err, "Unable to transform tokens for pod")
-		return err
-	}
-
-	for i, imagePullSecret := range hostPod.Spec.ImagePullSecrets {
-		hostPod.Spec.ImagePullSecrets[i].Name = p.Translator.TranslateName(virtualPod.Namespace, imagePullSecret.Name)
-	}
-
-	// inject networking information to the pod including the virtual cluster controlplane endpoint
-	configureNetworking(hostPod, virtualPod.Name, virtualPod.Namespace, p.serverIP, p.dnsIP)
-
-	// set ownerReference to the cluster object
-	if err := controllerutil.SetControllerReference(&cluster, hostPod, p.Host.Client.Scheme()); err != nil {
-		logger.Error(err, "Unable to set owner reference for pod")
-		return err
-	}
-
-	if err := p.Host.Client.Create(ctx, hostPod); err != nil {
-		logger.Error(err, "Error creating pod on host cluster")
-		return err
-	}
-
-	logger.Info("Pod created on host cluster")
-
+	_ = "STUB: not implemented"
 	return nil
 }
+
+// get Cluster definition
+
+// get Pod from Virtual Cluster
+
+// Copy the virtual Pod and use it as a baseline for the hostPod
+// do some basic translation and clearing some values (UID, ResourceVersion, ...)
+
+// Clear the NodeName to allow scheduling, and set affinity to prefer scheduling the Pod on the same host node as the virtual kubelet,
+// unless the user has specified their own affinity, in which case the user's affinity is respected.
+
+// The pod's own nodeSelector is ignored.
+// The final selector is determined by the cluster spec, but overridden by a policy if present.
+
+// setting the hostname for the pod if its not set
+
+// When a PriorityClass is set we will use the translated one in the HostCluster.
+// If the Cluster or a Policy defines a PriorityClass of the host we are going to use that one.
+// Note: the core-dns and local-path-provisioner pod are scheduled by k3s with the
+// 'system-cluster-critical' and 'system-node-critical' default priority classes.
+//
+// TODO: we probably need to define a custom "intermediate" k3k-system-* priority
+
+// if the priority class is set we need to remove the priority
+
+// volumes will often refer to resources in the virtual cluster
+// but instead need to refer to the synced host cluster version
+
+// sync serviceaccount token to a the host cluster
+
+// inject networking information to the pod including the virtual cluster controlplane endpoint
+
+// set ownerReference to the cluster object
 
 // withRetry retries passed function with interval and timeout
 func (p *Provider) withRetry(ctx context.Context, f func(context.Context, *corev1.Pod) error, pod *corev1.Pod) error {
-	const (
-		interval = time.Second
-		timeout  = 10 * time.Second
-	)
-
-	var allErrors error
-
-	// retryFn will retry until the operation succeed, or the timeout occurs
-	retryFn := func(ctx context.Context) (bool, error) {
-		if lastErr := f(ctx, pod); lastErr != nil {
-			// log that the retry failed?
-			allErrors = errors.Join(allErrors, lastErr)
-			return false, nil
-		}
-
-		return true, nil
-	}
-
-	if err := wait.PollUntilContextTimeout(ctx, interval, timeout, true, retryFn); err != nil {
-		return errors.Join(allErrors, ErrRetryTimeout)
-	}
-
+	_ = "STUB: not implemented"
 	return nil
 }
+
+// retryFn will retry until the operation succeed, or the timeout occurs
+
+// log that the retry failed?
 
 // transformVolumes changes the volumes to the representation in the host cluster
 func (p *Provider) transformVolumes(podNamespace string, volumes []corev1.Volume) {
-	for i := range volumes {
-		volume := &volumes[i]
-
-		// Skip volumes related to Kube API access
-		if strings.HasPrefix(volume.Name, kubeAPIAccessPrefix) {
-			continue
-		}
-
-		switch {
-		case volume.ConfigMap != nil:
-			volume.ConfigMap.Name = p.Translator.TranslateName(podNamespace, volume.ConfigMap.Name)
-
-		case volume.Secret != nil:
-			volume.Secret.SecretName = p.Translator.TranslateName(podNamespace, volume.Secret.SecretName)
-
-		case volume.PersistentVolumeClaim != nil:
-			volume.PersistentVolumeClaim.ClaimName = p.Translator.TranslateName(podNamespace, volume.PersistentVolumeClaim.ClaimName)
-
-		case volume.Projected != nil:
-			for _, source := range volume.Projected.Sources {
-				switch {
-				case source.ConfigMap != nil:
-					source.ConfigMap.Name = p.Translator.TranslateName(podNamespace, source.ConfigMap.Name)
-				case source.Secret != nil:
-					source.Secret.Name = p.Translator.TranslateName(podNamespace, source.Secret.Name)
-				}
-			}
-
-		case volume.DownwardAPI != nil:
-			for _, downwardAPI := range volume.DownwardAPI.Items {
-				if downwardAPI.FieldRef != nil {
-					switch downwardAPI.FieldRef.FieldPath {
-					case translate.MetadataNameField:
-						downwardAPI.FieldRef.FieldPath = fmt.Sprintf("metadata.annotations['%s']", translate.ResourceNameAnnotation)
-					case translate.MetadataNamespaceField:
-						downwardAPI.FieldRef.FieldPath = fmt.Sprintf("metadata.annotations['%s']", translate.ResourceNamespaceAnnotation)
-					}
-				}
-			}
-		}
-	}
+	_ = "STUB: not implemented"
+	return
 }
+
+// Skip volumes related to Kube API access
 
 // UpdatePod executes updatePod with retry
 func (p *Provider) UpdatePod(ctx context.Context, pod *corev1.Pod) error {
-	return p.withRetry(ctx, p.updatePod, pod)
-}
-
-func (p *Provider) updatePod(ctx context.Context, pod *corev1.Pod) error {
-	// Once scheduled a Pod cannot update other fields than the image of the containers, initcontainers and a few others
-	// See: https://kubernetes.io/docs/concepts/workloads/pods/#pod-update-and-replacement
-	hostPodName := p.Translator.TranslateName(pod.Namespace, pod.Name)
-
-	logger := p.logger.WithValues("namespace", pod.Namespace, "name", pod.Name, "pod", hostPodName)
-	logger.V(1).Info("UpdatePod")
-
-	//
-	//	Host Pod update
-	//
-
-	hostKey := types.NamespacedName{
-		Namespace: p.ClusterNamespace,
-		Name:      hostPodName,
-	}
-
-	var hostPod corev1.Pod
-	if err := p.Host.Client.Get(ctx, hostKey, &hostPod); err != nil {
-		logger.Error(err, "Unable to get Pod to update from host cluster")
-		return err
-	}
-
-	updatePod(&hostPod, pod)
-
-	if err := p.Host.Client.Update(ctx, &hostPod); err != nil {
-		logger.Error(err, "Unable to update Pod in host cluster")
-		return err
-	}
-
-	// Ephemeral containers update (subresource)
-	if !cmp.Equal(hostPod.Spec.EphemeralContainers, pod.Spec.EphemeralContainers) {
-		logger.V(1).Info("Updating ephemeral containers in host pod")
-
-		hostPod.Spec.EphemeralContainers = pod.Spec.EphemeralContainers
-
-		if _, err := p.Host.CoreClient.Pods(p.ClusterNamespace).UpdateEphemeralContainers(ctx, hostPod.Name, &hostPod, metav1.UpdateOptions{}); err != nil {
-			logger.Error(err, "Error when updating ephemeral containers in host pod")
-			return err
-		}
-	}
-
-	logger.Info("Pod updated in host cluster")
-
-	//
-	//	Virtual Pod update
-	//
-
-	key := types.NamespacedName{
-		Name:      pod.Name,
-		Namespace: pod.Namespace,
-	}
-
-	var virtualPod corev1.Pod
-	if err := p.Virtual.Client.Get(ctx, key, &virtualPod); err != nil {
-		logger.Error(err, "Unable to get pod to update from virtual cluster")
-		return err
-	}
-
-	updatePod(&virtualPod, pod)
-
-	if err := p.Virtual.Client.Update(ctx, &virtualPod); err != nil {
-		logger.Error(err, "Unable to update Pod in virtual cluster")
-		return err
-	}
-
-	// Ephemeral containers update (subresource)
-	if !cmp.Equal(virtualPod.Spec.EphemeralContainers, pod.Spec.EphemeralContainers) {
-		logger.V(1).Info("Updating ephemeral containers in virtual pod")
-
-		virtualPod.Spec.EphemeralContainers = pod.Spec.EphemeralContainers
-
-		if _, err := p.Host.CoreClient.Pods(p.ClusterNamespace).UpdateEphemeralContainers(ctx, virtualPod.Name, &virtualPod, metav1.UpdateOptions{}); err != nil {
-			logger.Error(err, "Error when updating ephemeral containers in virtual pod")
-			return err
-		}
-	}
-
-	logger.Info("Pod updated in virtual and host cluster")
-
+	_ = "STUB: not implemented"
 	return nil
 }
 
-func updatePod(dst, src *corev1.Pod) {
-	updateContainerImages(dst.Spec.Containers, src.Spec.Containers)
-	updateContainerImages(dst.Spec.InitContainers, src.Spec.InitContainers)
-
-	dst.Spec.ActiveDeadlineSeconds = src.Spec.ActiveDeadlineSeconds
-	dst.Spec.Tolerations = src.Spec.Tolerations
-
-	dst.Annotations = src.Annotations
-	dst.Labels = src.Labels
+func (p *Provider) updatePod(ctx context.Context, pod *corev1.Pod) error {
+	_ = "STUB: not implemented"
+	// Once scheduled a Pod cannot update other fields than the image of the containers, initcontainers and a few others
+	// See: https://kubernetes.io/docs/concepts/workloads/pods/#pod-update-and-replacement
+	return nil
 }
+
+//
+//	Host Pod update
+//
+
+// Ephemeral containers update (subresource)
+
+//
+//	Virtual Pod update
+//
+
+// Ephemeral containers update (subresource)
+
+func updatePod(dst, src *corev1.Pod) { _ = "STUB: not implemented"; return }
 
 // updateContainerImages will update the images of the original container images with the same name
-func updateContainerImages(dst, src []corev1.Container) {
-	images := make(map[string]string)
-
-	for _, container := range src {
-		images[container.Name] = container.Image
-	}
-
-	for i, container := range dst {
-		dst[i].Image = images[container.Name]
-	}
-}
+func updateContainerImages(dst, src []corev1.Container) { _ = "STUB: not implemented"; return }
 
 // DeletePod executes deletePod with retry
 func (p *Provider) DeletePod(ctx context.Context, pod *corev1.Pod) error {
-	return p.withRetry(ctx, p.deletePod, pod)
+	_ = "STUB: not implemented"
+	return nil
 }
 
 // deletePod takes a Kubernetes Pod and deletes it from the provider. Once a pod is deleted, the provider is
 // expected to call the NotifyPods callback with a terminal pod status where all the containers are in a terminal
 // state, as well as the pod. DeletePod may be called multiple times for the same pod.
 func (p *Provider) deletePod(ctx context.Context, pod *corev1.Pod) error {
-	hostPodName := p.Translator.TranslateName(pod.Namespace, pod.Name)
-
-	logger := p.logger.WithValues("namespace", pod.Namespace, "name", pod.Name, "pod", hostPodName)
-	logger.V(1).Info("DeletePod")
-
-	err := p.Host.CoreClient.Pods(p.ClusterNamespace).Delete(ctx, hostPodName, metav1.DeleteOptions{})
-	if err != nil {
-		if apierrors.IsNotFound(err) {
-			logger.Info("Pod to delete not found in host cluster")
-			return nil
-		}
-
-		logger.Error(err, "Error trying to delete pod from host cluster")
-
-		return err
-	}
-
-	logger.Info("Pod deleted from host cluster")
-
+	_ = "STUB: not implemented"
 	return nil
 }
 
@@ -729,18 +209,8 @@ func (p *Provider) deletePod(ctx context.Context, pod *corev1.Pod) error {
 // concurrently outside of the calling goroutine. Therefore it is recommended
 // to return a version after DeepCopy.
 func (p *Provider) GetPod(ctx context.Context, namespace, name string) (*corev1.Pod, error) {
-	hostPodName := p.Translator.TranslateName(namespace, name)
-
-	logger := p.logger.WithValues("namespace", namespace, "name", name, "pod", hostPodName)
-	logger.V(1).Info("GetPod")
-
-	pod, err := p.getPodFromHostCluster(ctx, hostPodName)
-	if err != nil {
-		logger.Error(err, "Error getting pod from host cluster for GetPod")
-		return nil, err
-	}
-
-	return pod, nil
+	_ = "STUB: not implemented"
+	return nil, nil
 }
 
 // GetPodStatus retrieves the status of a pod by name from the provider.
@@ -748,34 +218,13 @@ func (p *Provider) GetPod(ctx context.Context, namespace, name string) (*corev1.
 // concurrently outside of the calling goroutine. Therefore it is recommended
 // to return a version after DeepCopy.
 func (p *Provider) GetPodStatus(ctx context.Context, namespace, name string) (*corev1.PodStatus, error) {
-	hostPodName := p.Translator.TranslateName(namespace, name)
-
-	logger := p.logger.WithValues("namespace", namespace, "name", name, "pod", hostPodName)
-	logger.V(1).Info("GetPodStatus")
-
-	pod, err := p.getPodFromHostCluster(ctx, hostPodName)
-	if err != nil {
-		logger.Error(err, "Error getting pod from host cluster for PodStatus")
-		return nil, err
-	}
-
-	return pod.Status.DeepCopy(), nil
+	_ = "STUB: not implemented"
+	return nil, nil
 }
 
 func (p *Provider) getPodFromHostCluster(ctx context.Context, hostPodName string) (*corev1.Pod, error) {
-	key := types.NamespacedName{
-		Namespace: p.ClusterNamespace,
-		Name:      hostPodName,
-	}
-
-	var pod corev1.Pod
-	if err := p.Host.Client.Get(ctx, key, &pod); err != nil {
-		return nil, err
-	}
-
-	p.Translator.TranslateFrom(&pod)
-
-	return &pod, nil
+	_ = "STUB: not implemented"
+	return nil, nil
 }
 
 // GetPods retrieves a list of all pods running on the provider (can be cached).
@@ -783,194 +232,52 @@ func (p *Provider) getPodFromHostCluster(ctx context.Context, hostPodName string
 // concurrently outside of the calling goroutine. Therefore it is recommended
 // to return a version after DeepCopy.
 func (p *Provider) GetPods(ctx context.Context) ([]*corev1.Pod, error) {
-	p.logger.V(1).Info("GetPods")
-
-	selector := labels.NewSelector()
-
-	requirement, err := labels.NewRequirement(translate.ClusterNameLabel, selection.Equals, []string{p.ClusterName})
-	if err != nil {
-		p.logger.Error(err, "Error creating label selector for GetPods")
-		return nil, err
-	}
-
-	selector = selector.Add(*requirement)
-
-	var podList corev1.PodList
-
-	err = p.Host.Client.List(ctx, &podList, &client.ListOptions{LabelSelector: selector})
-	if err != nil {
-		p.logger.Error(err, "Error listing pods from host cluster")
-		return nil, err
-	}
-
-	retPods := []*corev1.Pod{}
-
-	for _, pod := range podList.DeepCopy().Items {
-		p.Translator.TranslateFrom(&pod)
-		retPods = append(retPods, &pod)
-	}
-
-	return retPods, nil
+	_ = "STUB: not implemented"
+	return nil, nil
 }
 
 // configureNetworking will inject network information to each pod to connect them to the
 // virtual cluster api server, as well as confiugre DNS information to connect them to the
 // synced coredns on the host cluster.
 func configureNetworking(pod *corev1.Pod, podName, podNamespace, serverIP, dnsIP string) {
+	_ = "STUB: not implemented"
 	// inject serverIP to hostalias for the pod
-	pod.Spec.HostAliases = append(pod.Spec.HostAliases, corev1.HostAlias{
-		IP: serverIP,
-		Hostnames: []string{
-			"kubernetes",
-			"kubernetes.default",
-			"kubernetes.default.svc",
-			"kubernetes.default.svc.cluster",
-			"kubernetes.default.svc.cluster.local",
-		},
-	})
-
-	// injecting cluster DNS IP to the pods except for coredns pod
-	if !strings.HasPrefix(podName, "coredns") && pod.Spec.DNSConfig == nil {
-		pod.Spec.DNSPolicy = corev1.DNSNone
-		pod.Spec.DNSConfig = &corev1.PodDNSConfig{
-			Nameservers: []string{
-				dnsIP,
-			},
-			Searches: []string{
-				podNamespace + ".svc.cluster.local",
-				"svc.cluster.local",
-				"cluster.local",
-			},
-			Options: []corev1.PodDNSConfigOption{
-				{
-					Name:  "ndots",
-					Value: ptr.To("5"),
-				},
-			},
-		}
-	}
-
-	updatedEnvVars := []corev1.EnvVar{
-		{Name: "KUBERNETES_SERVICE_HOST", Value: serverIP},
-		{Name: "KUBERNETES_PORT", Value: "tcp://" + serverIP + ":443"},
-		{Name: "KUBERNETES_PORT_443_TCP", Value: "tcp://" + serverIP + ":443"},
-		{Name: "KUBERNETES_PORT_443_TCP_ADDR", Value: serverIP},
-	}
-
-	// inject networking information to the pod's environment variables
-	for i := range pod.Spec.Containers {
-		pod.Spec.Containers[i].Env = mergeEnvVars(pod.Spec.Containers[i].Env, updatedEnvVars)
-	}
-
-	// handle init containers as well
-	for i := range pod.Spec.InitContainers {
-		pod.Spec.InitContainers[i].Env = mergeEnvVars(pod.Spec.InitContainers[i].Env, updatedEnvVars)
-	}
-
-	// handle ephemeral containers as well
-	for i := range pod.Spec.EphemeralContainers {
-		pod.Spec.EphemeralContainers[i].Env = mergeEnvVars(pod.Spec.EphemeralContainers[i].Env, updatedEnvVars)
-	}
+	return
 }
+
+// injecting cluster DNS IP to the pods except for coredns pod
+
+// inject networking information to the pod's environment variables
+
+// handle init containers as well
+
+// handle ephemeral containers as well
 
 // mergeEnvVars will override the orig environment variables if found in the updated list and will add them to the list if not found
 func mergeEnvVars(orig, updated []corev1.EnvVar) []corev1.EnvVar {
-	if len(updated) == 0 {
-		return orig
-	}
-
-	// create map for single lookup
-	updatedEnvVarMap := make(map[string]corev1.EnvVar)
-	for _, updatedEnvVar := range updated {
-		updatedEnvVarMap[updatedEnvVar.Name] = updatedEnvVar
-	}
-
-	for i, env := range orig {
-		if updatedEnv, ok := updatedEnvVarMap[env.Name]; ok {
-			orig[i] = updatedEnv
-			// Remove the updated variable from the map
-			delete(updatedEnvVarMap, env.Name)
-		}
-	}
-
-	// Any variables remaining in the map are new and should be appended to the original slice.
-	for _, env := range updatedEnvVarMap {
-		orig = append(orig, env)
-	}
-
-	return orig
+	_ = "STUB: not implemented"
+	return nil
 }
 
+// create map for single lookup
+
+// Remove the updated variable from the map
+
+// Any variables remaining in the map are new and should be appended to the original slice.
+
 func (p *Provider) configurePodEnvs(hostPod, virtualPod *corev1.Pod) {
-	for i := range hostPod.Spec.Containers {
-		hostPod.Spec.Containers[i].Env = p.configureEnv(virtualPod, virtualPod.Spec.Containers[i].Env)
-		hostPod.Spec.Containers[i].EnvFrom = p.configureEnvFrom(virtualPod, virtualPod.Spec.Containers[i].EnvFrom)
-	}
-
-	for i := range hostPod.Spec.InitContainers {
-		hostPod.Spec.InitContainers[i].Env = p.configureEnv(virtualPod, virtualPod.Spec.InitContainers[i].Env)
-		hostPod.Spec.InitContainers[i].EnvFrom = p.configureEnvFrom(virtualPod, virtualPod.Spec.InitContainers[i].EnvFrom)
-	}
-
-	for i := range hostPod.Spec.EphemeralContainers {
-		hostPod.Spec.EphemeralContainers[i].Env = p.configureEnv(virtualPod, virtualPod.Spec.EphemeralContainers[i].Env)
-		hostPod.Spec.EphemeralContainers[i].EnvFrom = p.configureEnvFrom(virtualPod, virtualPod.Spec.EphemeralContainers[i].EnvFrom)
-	}
+	_ = "STUB: not implemented"
+	return
 }
 
 func (p *Provider) configureEnv(virtualPod *corev1.Pod, envs []corev1.EnvVar) []corev1.EnvVar {
-	resultingEnvVars := make([]corev1.EnvVar, 0, len(envs))
-
-	for _, envVar := range envs {
-		resultingEnvVar := envVar
-
-		if envVar.ValueFrom != nil {
-			from := envVar.ValueFrom
-
-			switch {
-			case from.FieldRef != nil:
-				fieldRef := from.FieldRef
-
-				// for name and namespace we need to hardcode the virtual cluster values, and clear the FieldRef
-				switch fieldRef.FieldPath {
-				case "metadata.name":
-					resultingEnvVar.Value = virtualPod.Name
-					resultingEnvVar.ValueFrom = nil
-				case "metadata.namespace":
-					resultingEnvVar.Value = virtualPod.Namespace
-					resultingEnvVar.ValueFrom = nil
-				}
-
-			case from.ConfigMapKeyRef != nil:
-				resultingEnvVar.ValueFrom.ConfigMapKeyRef.Name = p.Translator.TranslateName(virtualPod.Namespace, resultingEnvVar.ValueFrom.ConfigMapKeyRef.Name)
-
-			case from.SecretKeyRef != nil:
-				resultingEnvVar.ValueFrom.SecretKeyRef.Name = p.Translator.TranslateName(virtualPod.Namespace, resultingEnvVar.ValueFrom.SecretKeyRef.Name)
-			}
-		}
-
-		resultingEnvVars = append(resultingEnvVars, resultingEnvVar)
-	}
-
-	return resultingEnvVars
+	_ = "STUB: not implemented"
+	return nil
 }
 
+// for name and namespace we need to hardcode the virtual cluster values, and clear the FieldRef
+
 func (p *Provider) configureEnvFrom(virtualPod *corev1.Pod, envs []corev1.EnvFromSource) []corev1.EnvFromSource {
-	resultingEnvVars := make([]corev1.EnvFromSource, 0, len(envs))
-
-	for _, envVar := range envs {
-		resultingEnvVar := envVar
-
-		if envVar.ConfigMapRef != nil {
-			resultingEnvVar.ConfigMapRef.Name = p.Translator.TranslateName(virtualPod.Namespace, envVar.ConfigMapRef.Name)
-		}
-
-		if envVar.SecretRef != nil {
-			resultingEnvVar.SecretRef.Name = p.Translator.TranslateName(virtualPod.Namespace, envVar.SecretRef.Name)
-		}
-
-		resultingEnvVars = append(resultingEnvVars, resultingEnvVar)
-	}
-
-	return resultingEnvVars
+	_ = "STUB: not implemented"
+	return nil
 }

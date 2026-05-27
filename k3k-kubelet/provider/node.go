@@ -13,10 +13,13 @@ type Node struct {
 
 // Ping is called to check if the node is healthy - in the current format it always is
 func (n *Node) Ping(context.Context) error {
+	_ = "STUB: not implemented"
+
+	// NotifyNodeStatus sets the callback function for a node being changed. As of now, no changes are made
 	return nil
 }
 
-// NotifyNodeStatus sets the callback function for a node being changed. As of now, no changes are made
 func (n *Node) NotifyNodeStatus(ctx context.Context, cb func(*corev1.Node)) {
-	n.notifyCallback = cb
+	_ = "STUB: not implemented"
+	return
 }
